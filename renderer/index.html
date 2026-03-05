@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Overlay Terminal</title>
+  <link rel="stylesheet" href="../node_modules/xterm/css/xterm.css" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="app">
+    <!-- Terminal panes (one per tab, only active one is visible) -->
+    <div id="terminal-container"></div>
+
+    <!-- Tab bar at the bottom -->
+    <div id="tab-bar">
+      <div id="tabs"></div>
+
+      <button id="btn-new-tab" title="New tab (Ctrl+T)">+</button>
+
+      <div id="shell-select-wrap">
+        <select id="shell-select"></select>
+      </div>
+
+      <div id="window-controls">
+        <button id="btn-minimize" title="Minimize">─</button>
+        <button id="btn-hide"     title="Hide (Ctrl+`)">▾</button>
+        <button id="btn-close"    title="Quit">✕</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="../node_modules/xterm/lib/xterm.js"></script>
+  <script src="../node_modules/xterm-addon-fit/lib/xterm-addon-fit.js"></script>
+  <script src="renderer.js"></script>
+</body>
+</html>

@@ -1,0 +1,184 @@
+/* ── Reset & base ────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  width: 100%;
+  height: 100%;
+  background: transparent;
+  overflow: hidden;
+  font-family: 'Cascadia Code', 'Fira Code', Consolas, 'Courier New', monospace;
+}
+
+#app {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  background: transparent;
+}
+
+/* ── Tab bar — entire bar is draggable, children override ────────────────── */
+#tab-bar {
+  display: flex;
+  align-items: center;
+  height: 32px;
+  background: rgba(15, 15, 15, 0.95);
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  flex-shrink: 0;
+  gap: 2px;
+  padding: 0 6px;
+  border-radius: 0 0 8px 8px;
+  user-select: none;
+  -webkit-app-region: drag;
+}
+
+#tabs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 1;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  -webkit-app-region: drag;
+}
+#tabs::-webkit-scrollbar { display: none; }
+
+.tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px 3px 12px;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.5);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid transparent;
+  white-space: nowrap;
+  transition: background 0.15s, color 0.15s;
+  flex-shrink: 0;
+  max-width: 160px;
+  -webkit-app-region: no-drag;
+}
+.tab:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.8);
+}
+.tab.active {
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.18);
+}
+.tab-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tab-close {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.3);
+  font-size: 10px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  padding: 0;
+  flex-shrink: 0;
+  transition: background 0.15s, color 0.15s;
+}
+.tab-close:hover {
+  background: rgba(255, 80, 80, 0.7);
+  color: #fff;
+}
+
+/* ── Buttons & controls ──────────────────────────────────────────────────── */
+#btn-new-tab {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  border-radius: 5px;
+  border: none;
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s;
+  -webkit-app-region: no-drag;
+}
+#btn-new-tab:hover { background: rgba(255, 255, 255, 0.15); color: #fff; }
+
+#shell-select-wrap {
+  flex-shrink: 0;
+  -webkit-app-region: no-drag;
+}
+#shell-select {
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  font-size: 11px;
+  padding: 2px 4px;
+  height: 22px;
+  cursor: pointer;
+  outline: none;
+}
+#shell-select option { background: #1a1a1a; color: #fff; }
+#shell-select:hover { border-color: rgba(255, 255, 255, 0.25); }
+
+#window-controls {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+  -webkit-app-region: no-drag;
+}
+#window-controls button {
+  width: 26px;
+  height: 24px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.45);
+  font-size: 11px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, color 0.15s;
+  font-family: inherit;
+}
+#window-controls button:hover { background: rgba(255, 255, 255, 0.1); color: #fff; }
+#btn-close:hover { background: rgba(200, 50, 50, 0.7) !important; color: #fff !important; }
+
+/* ── Terminal area — solid dark background so text is always readable ─────── */
+#terminal-container {
+  flex: 1;
+  position: relative;
+  background: #0d0d0d;
+  overflow: hidden;
+  border-radius: 8px 8px 0 0;
+}
+
+.terminal-pane {
+  position: absolute;
+  inset: 0;
+  padding: 6px 8px;
+  display: none;
+  background: transparent;
+}
+.terminal-pane.active { display: block; }
+
+/* xterm overrides */
+.xterm { height: 100%; }
+.xterm-viewport { background: transparent !important; }
+.xterm-screen canvas { background: transparent !important; }
