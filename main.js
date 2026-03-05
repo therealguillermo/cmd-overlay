@@ -128,6 +128,21 @@ ipcMain.on('window:hide',       () => mainWindow.hide());
 ipcMain.on('window:close',      () => app.quit());
 ipcMain.on('window:setOpacity', (event, v) => mainWindow.setOpacity(Math.max(0.1, Math.min(1, v))));
 
+const TAB_BAR_H    = 32;
+const PANE_PADDING = 14; // 6px top + 8px bottom from .terminal-pane
+const MAX_HEIGHT   = 480;
+
+ipcMain.on('window:resizeToContent', (event, contentPx) => {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  const { width: screenW, height: screenH } = screen.getPrimaryDisplay().workAreaSize;
+  const newHeight = Math.min(
+    Math.max(TAB_BAR_H + PANE_PADDING + Math.ceil(contentPx), TAB_BAR_H + 20),
+    MAX_HEIGHT
+  );
+  const bounds = mainWindow.getBounds();
+  mainWindow.setBounds({ x: bounds.x, y: screenH - newHeight, width: bounds.width, height: newHeight }, false);
+});
+
 // Keep app alive when all windows are closed (hide instead of quit)
 app.on('window-all-closed', () => {});
 

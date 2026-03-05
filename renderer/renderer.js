@@ -1,7 +1,7 @@
 const { ipcRenderer } = require('electron');
 
 // ── State ──────────────────────────────────────────────────────────────────
-const tabs = new Map(); // tabId → { term, fitAddon, pane, tabEl, shellLabel }
+const tabs = new Map(); // tabId → { term, fitAddon, pane, tabEl, shellLabel, pixelsPerRow }
 let activeTabId = null;
 let availableShells = [];
 
@@ -38,12 +38,21 @@ const TERM_THEME = {
   brightWhite:   '#ffffff',
 };
 
+// ── Window height — grows upward from bottom as content fills ─────────────
+function resizeWindowToContent(tabId) {
+  if (tabId !== activeTabId) return;
+  const tab = tabs.get(tabId);
+  if (!tab) return;
+  const contentRows = tab.term.buffer.active.cursorY + 1;
+  const contentPx   = Math.round(contentRows * tab.pixelsPerRow);
+  ipcRenderer.send('window:resizeToContent', contentPx);
+}
+
 // ── Tab management ─────────────────────────────────────────────────────────
 async function createTab(shellId) {
   const shell = availableShells.find(s => s.id === shellId) || availableShells[0];
   if (!shell) return;
 
-  // Build xterm instance
   const term = new Terminal({
     allowTransparency: true,
     theme: TERM_THEME,
@@ -78,34 +87,41 @@ async function createTab(shellId) {
   tabEl.addEventListener('click', () => activateTab(tabId));
   tabsEl.appendChild(tabEl);
 
-  // Fit, then position cursor at the last row so content grows upward
+  // Fit to the current window size to get cols/rows and pixels-per-row
   fitAddon.fit();
   const { cols, rows } = term;
-  term.write(`\x1b[${rows};1H`);
+  const pixelsPerRow = containerEl.clientHeight / rows;
 
   const tabId = await ipcRenderer.invoke('pty:create', { shellId: shell.id, cols, rows });
 
-  tabs.set(tabId, { term, fitAddon, pane, tabEl, shellLabel: shell.label });
+  tabs.set(tabId, { term, fitAddon, pane, tabEl, shellLabel: shell.label, pixelsPerRow });
 
   // Wire input
   term.onData(data => ipcRenderer.send('pty:input', { tabId, data }));
 
-  // Resize observer
+  // Only refit when the pane WIDTH changes — height is controlled by us.
+  // Refitting on height changes would cause a feedback loop.
+  let prevWidth = pane.clientWidth;
   const ro = new ResizeObserver(() => {
     if (activeTabId !== tabId) return;
-    fitAddon.fit();
-    ipcRenderer.send('pty:resize', { tabId, cols: term.cols, rows: term.rows });
+    const w = pane.clientWidth;
+    if (w !== prevWidth) {
+      prevWidth = w;
+      fitAddon.fit();
+      ipcRenderer.send('pty:resize', { tabId, cols: term.cols, rows: term.rows });
+    }
   });
   ro.observe(pane);
 
   activateTab(tabId);
+  // Set initial window height to just the first row
+  resizeWindowToContent(tabId);
   return tabId;
 }
 
 function activateTab(tabId) {
   if (!tabs.has(tabId)) return;
 
-  // Deactivate previous
   if (activeTabId !== null && tabs.has(activeTabId)) {
     const prev = tabs.get(activeTabId);
     prev.pane.classList.remove('active');
@@ -117,11 +133,11 @@ function activateTab(tabId) {
   pane.classList.add('active');
   tabEl.classList.add('active');
 
-  // Fit and focus after paint
   requestAnimationFrame(() => {
     fitAddon.fit();
     ipcRenderer.send('pty:resize', { tabId, cols: term.cols, rows: term.rows });
     term.focus();
+    resizeWindowToContent(tabId);
   });
 }
 
@@ -143,28 +159,17 @@ function closeTab(tabId) {
     }
   }
 
-  // If no tabs left, open a new default one
   if (tabs.size === 0) {
     createTab(shellSelect.value);
   }
 }
 
 // ── PTY output ────────────────────────────────────────────────────────────
-
-// Intercept clear-screen sequences and redirect the cursor to the last row
-// instead of row 1, so content always anchors to the bottom.
-function anchorToBottom(data, rows) {
-  // Match: optional cursor-home, one or more clears (ESC[2J / ESC[3J), optional cursor-home
-  return data.replace(
-    /(\x1b\[\d*;?\d*H)?(\x1b\[[23]J)+(\x1b\[\d*;?\d*H)?/g,
-    (_match, _pre, lastClear) => `${lastClear}\x1b[${rows};1H`
-  );
-}
-
 ipcRenderer.on('pty:output', (event, { tabId, data }) => {
   const tab = tabs.get(tabId);
   if (!tab) return;
-  tab.term.write(anchorToBottom(data, tab.term.rows));
+  // Use write callback so we read cursorY AFTER xterm has parsed the data
+  tab.term.write(data, () => resizeWindowToContent(tabId));
 });
 
 ipcRenderer.on('pty:exit', (event, { tabId }) => {
@@ -176,24 +181,20 @@ btnMinimize.addEventListener('click', () => ipcRenderer.send('window:minimize'))
 btnHide.addEventListener('click',     () => ipcRenderer.send('window:hide'));
 btnClose.addEventListener('click',    () => ipcRenderer.send('window:close'));
 
-// New tab
 btnNewTab.addEventListener('click', () => createTab(shellSelect.value));
 
 // ── Keyboard shortcuts ────────────────────────────────────────────────────
 document.addEventListener('keydown', e => {
-  // Ctrl+T → new tab
   if (e.ctrlKey && e.key === 't') {
     e.preventDefault();
     createTab(shellSelect.value);
     return;
   }
-  // Ctrl+W → close active tab
   if (e.ctrlKey && e.key === 'w') {
     e.preventDefault();
     if (activeTabId !== null) closeTab(activeTabId);
     return;
   }
-  // Ctrl+Tab / Ctrl+Shift+Tab → cycle tabs
   if (e.ctrlKey && e.key === 'Tab') {
     e.preventDefault();
     const ids = [...tabs.keys()];
@@ -205,7 +206,6 @@ document.addEventListener('keydown', e => {
     activateTab(next);
     return;
   }
-  // Ctrl+1..9 → jump to tab
   if (e.ctrlKey && e.key >= '1' && e.key <= '9') {
     const ids = [...tabs.keys()];
     const idx = parseInt(e.key, 10) - 1;
@@ -217,7 +217,6 @@ document.addEventListener('keydown', e => {
 async function init() {
   availableShells = await ipcRenderer.invoke('pty:shells');
 
-  // Populate shell selector
   availableShells.forEach(shell => {
     const opt = document.createElement('option');
     opt.value = shell.id;
@@ -225,7 +224,6 @@ async function init() {
     shellSelect.appendChild(opt);
   });
 
-  // Open one tab on start
   await createTab(availableShells[0].id);
 }
 
