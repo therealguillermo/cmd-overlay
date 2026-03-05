@@ -164,7 +164,7 @@ html, body {
 #terminal-container {
   flex: 1;
   position: relative;
-  background: #0d0d0d;
+  background: transparent;
   overflow: hidden;
   border-radius: 8px 8px 0 0;
 }

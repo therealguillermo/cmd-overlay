@@ -30,12 +30,12 @@ function getAvailableShells() {
 }
 
 function createWindow() {
-  const { height } = screen.getPrimaryDisplay().workAreaSize;
+  const { width, height } = screen.getPrimaryDisplay().workAreaSize;
 
   mainWindow = new BrowserWindow({
     width: 480,
     height: 480,
-    x: 0,
+    x: width - 480,
     y: height - 480,
     transparent: true,
     frame: false,

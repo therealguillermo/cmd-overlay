@@ -16,7 +16,7 @@ const btnClose    = document.getElementById('btn-close');
 
 // ── Xterm theme ────────────────────────────────────────────────────────────
 const TERM_THEME = {
-  background:    '#0d0d0d',
+  background:    'transparent',
   foreground:    '#e8e8e8',
   cursor:        '#e8e8e8',
   cursorAccent:  '#000',
@@ -45,6 +45,7 @@ async function createTab(shellId) {
 
   // Build xterm instance
   const term = new Terminal({
+    allowTransparency: true,
     theme: TERM_THEME,
     fontFamily: "'Cascadia Code', 'Fira Code', Consolas, 'Courier New', monospace",
     fontSize: 13,
@@ -77,9 +78,11 @@ async function createTab(shellId) {
   tabEl.addEventListener('click', () => activateTab(tabId));
   tabsEl.appendChild(tabEl);
 
-  // Spawn PTY
+  // Fit, then position cursor at the last row so content grows upward
   fitAddon.fit();
   const { cols, rows } = term;
+  term.write(`\x1b[${rows};1H`);
+
   const tabId = await ipcRenderer.invoke('pty:create', { shellId: shell.id, cols, rows });
 
   tabs.set(tabId, { term, fitAddon, pane, tabEl, shellLabel: shell.label });
@@ -147,9 +150,21 @@ function closeTab(tabId) {
 }
 
 // ── PTY output ────────────────────────────────────────────────────────────
+
+// Intercept clear-screen sequences and redirect the cursor to the last row
+// instead of row 1, so content always anchors to the bottom.
+function anchorToBottom(data, rows) {
+  // Match: optional cursor-home, one or more clears (ESC[2J / ESC[3J), optional cursor-home
+  return data.replace(
+    /(\x1b\[\d*;?\d*H)?(\x1b\[[23]J)+(\x1b\[\d*;?\d*H)?/g,
+    (_match, _pre, lastClear) => `${lastClear}\x1b[${rows};1H`
+  );
+}
+
 ipcRenderer.on('pty:output', (event, { tabId, data }) => {
   const tab = tabs.get(tabId);
-  if (tab) tab.term.write(data);
+  if (!tab) return;
+  tab.term.write(anchorToBottom(data, tab.term.rows));
 });
 
 ipcRenderer.on('pty:exit', (event, { tabId }) => {
