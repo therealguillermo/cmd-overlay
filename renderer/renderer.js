@@ -104,9 +104,9 @@ async function createTab(shellId) {
 
   const tabId = await ipcRenderer.invoke('pty:create', { shellId: shell.id, cols, rows });
 
-  tabs.set(tabId, { term, pane, tabEl, shellLabel: shell.label });
+  tabs.set(tabId, { term, pane, tabEl, shellLabel: shell.label, agentMode: false, agentPending: 0, agentBuffer: '' });
 
-  term.onData(data => ipcRenderer.send('pty:input', { tabId, data }));
+  term.onData(data => handleTermInput(tabId, data));
 
   activateTab(tabId);
   return tabId;
@@ -156,6 +156,57 @@ function closeTab(tabId) {
   }
 }
 
+// ── ?? Agent input interception ───────────────────────────────────────────
+function handleTermInput(tabId, data) {
+  const tab = tabs.get(tabId);
+  if (!tab) return;
+
+  if (tab.agentMode) {
+    if (data === '\r') {
+      const prompt = tab.agentBuffer.trim();
+      tab.term.write('\r\n');
+      tab.agentMode = false;
+      tab.agentBuffer = '';
+      if (prompt) ipcRenderer.send('agent:run', { tabId, prompt });
+    } else if (data === '\x7f' || data === '\b') {
+      if (tab.agentBuffer.length > 0) {
+        tab.agentBuffer = tab.agentBuffer.slice(0, -1);
+        tab.term.write('\b \b');
+      }
+    } else if (data === '\x03') {
+      tab.term.write('^C\r\n');
+      tab.agentMode = false;
+      tab.agentBuffer = '';
+      tab.agentPending = 0;
+    } else {
+      tab.agentBuffer += data;
+      tab.term.write(data);
+    }
+    return;
+  }
+
+  if (data === '?') {
+    if (tab.agentPending === 1) {
+      // Second ? — enter agent mode
+      tab.agentMode = true;
+      tab.agentPending = 0;
+      tab.agentBuffer = '';
+      tab.term.write('\x1b[32m??\x1b[0m ');
+    } else {
+      tab.agentPending = 1;
+    }
+    return;
+  }
+
+  // Not a ? — flush any held ? to PTY and proceed normally
+  if (tab.agentPending > 0) {
+    ipcRenderer.send('pty:input', { tabId, data: '?' });
+    tab.agentPending = 0;
+  }
+
+  ipcRenderer.send('pty:input', { tabId, data });
+}
+
 // ── PTY output ────────────────────────────────────────────────────────────
 ipcRenderer.on('pty:output', (event, { tabId, data }) => {
   const tab = tabs.get(tabId);
@@ -167,6 +218,17 @@ ipcRenderer.on('pty:output', (event, { tabId, data }) => {
 
 ipcRenderer.on('pty:exit', (event, { tabId }) => {
   closeTab(tabId);
+});
+
+// ── Agent output ──────────────────────────────────────────────────────────
+ipcRenderer.on('agent:output', (event, { tabId, output }) => {
+  const tab = tabs.get(tabId);
+  if (tab) tab.term.write(output, () => resizeWindowToContent(tabId));
+});
+
+ipcRenderer.on('agent:done', (event, { tabId }) => {
+  const tab = tabs.get(tabId);
+  if (tab) tab.term.write('\r\n', () => resizeWindowToContent(tabId));
 });
 
 // ── Window controls ───────────────────────────────────────────────────────

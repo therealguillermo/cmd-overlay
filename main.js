@@ -4,6 +4,7 @@ const os = require('os');
 const path = require('path');
 const pty = require('node-pty');
 const agentTools = require('./agent-tools');
+const { runAgent } = require('./agent');
 
 const ptys = new Map();
 let tabCounter = 0;
@@ -224,3 +225,21 @@ function summarizeForLog(result) {
   const s = JSON.stringify(result);
   return s.length > 500 ? s.slice(0, 500) + '…' : s;
 }
+
+// ── Agent run handler ──────────────────────────────────────────────────────────
+
+ipcMain.on('agent:run', async (event, { tabId, prompt }) => {
+  const send = (channel, payload) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send(channel, payload);
+    }
+  };
+  try {
+    await runAgent(prompt, (output) => send('agent:output', { tabId, output }));
+  } catch (err) {
+    const msg = err && err.message ? err.message : String(err);
+    send('agent:output', { tabId, output: `\r\n\x1b[31m[agent error] ${msg}\x1b[0m\r\n` });
+  } finally {
+    send('agent:done', { tabId });
+  }
+});
