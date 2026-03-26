@@ -1,7 +1,9 @@
-const { app, BrowserWindow, ipcMain, globalShortcut, screen } = require('electron');
+const { app, BrowserWindow, ipcMain, globalShortcut, screen, dialog } = require('electron');
+const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const pty = require('node-pty');
+const agentTools = require('./agent-tools');
 
 const ptys = new Map();
 let tabCounter = 0;
@@ -128,13 +130,13 @@ ipcMain.on('window:hide',       () => mainWindow.hide());
 ipcMain.on('window:close',      () => app.quit());
 ipcMain.on('window:setOpacity', (event, v) => mainWindow.setOpacity(Math.max(0.1, Math.min(1, v))));
 
-const TAB_BAR_H    = 32;
-const PANE_PADDING = 14; // 6px top + 8px bottom from .terminal-pane
+const TAB_BAR_H    = 28; // matches #tab-bar height in styles.css
+const PANE_PADDING = 14; // 6px top + 8px bottom from .terminal-pane padding
 const MAX_HEIGHT   = 480;
 
 ipcMain.on('window:resizeToContent', (event, contentPx) => {
   if (!mainWindow || mainWindow.isDestroyed()) return;
-  const { width: screenW, height: screenH } = screen.getPrimaryDisplay().workAreaSize;
+  const { height: screenH } = screen.getPrimaryDisplay().workAreaSize;
   const newHeight = Math.min(
     Math.max(TAB_BAR_H + PANE_PADDING + Math.ceil(contentPx), TAB_BAR_H + 20),
     MAX_HEIGHT
@@ -161,3 +163,64 @@ ipcMain.handle('autostart:set', (event, enable) => {
   app.setLoginItemSettings({ openAtLogin: enable });
   return enable;
 });
+
+// ── Agent tools (main-process only) ───────────────────────────────────────────
+
+function agentLog(entry) {
+  const line = JSON.stringify({ ts: new Date().toISOString(), ...entry }) + '\n';
+  try {
+    const logPath = path.join(app.getPath('userData'), 'agent.log');
+    fs.appendFileSync(logPath, line);
+  } catch (e) {
+    console.error('[agent] log failed', e);
+  }
+  console.log('[agent]', line.trim());
+}
+
+function riskNeedsConfirmation(risk) {
+  return risk === 'network' || risk === 'destructive';
+}
+
+ipcMain.handle('agent:listTools', () => agentTools.listTools());
+
+ipcMain.handle('agent:invoke', async (event, { tool, args = {}, skipConfirmation = false }) => {
+  const def = agentTools.getTool(tool);
+  agentLog({ type: 'invoke', tool, args, skipConfirmation, found: !!def });
+
+  if (!def) {
+    return { ok: false, error: `Unknown tool: ${tool}` };
+  }
+
+  if (riskNeedsConfirmation(def.risk) && !skipConfirmation) {
+    const detail = `${def.description}\n\nRisk: ${def.risk}\n\n${JSON.stringify(args, null, 2)}`;
+    const { response } = await dialog.showMessageBox(mainWindow || undefined, {
+      type: def.risk === 'destructive' ? 'warning' : 'question',
+      buttons: ['Cancel', 'Allow'],
+      defaultId: 0,
+      cancelId: 0,
+      title: 'Confirm agent action',
+      message: `Allow "${tool}"?`,
+      detail,
+    });
+    if (response !== 1) {
+      agentLog({ type: 'denied', tool, args });
+      return { ok: false, denied: true, error: 'User cancelled' };
+    }
+  }
+
+  try {
+    const result = await def.run(args);
+    agentLog({ type: 'ok', tool, resultPreview: summarizeForLog(result) });
+    return { ok: true, result };
+  } catch (err) {
+    const message = err && err.message ? err.message : String(err);
+    agentLog({ type: 'error', tool, error: message });
+    return { ok: false, error: message };
+  }
+});
+
+function summarizeForLog(result) {
+  if (result == null) return null;
+  const s = JSON.stringify(result);
+  return s.length > 500 ? s.slice(0, 500) + '…' : s;
+}

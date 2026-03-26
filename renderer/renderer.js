@@ -1,7 +1,7 @@
 const { ipcRenderer } = require('electron');
 
 // ── State ──────────────────────────────────────────────────────────────────
-const tabs = new Map(); // tabId → { term, fitAddon, pane, tabEl, shellLabel, pixelsPerRow }
+const tabs = new Map(); // tabId → { term, pane, tabEl, shellLabel }
 let activeTabId = null;
 let availableShells = [];
 
@@ -38,13 +38,22 @@ const TERM_THEME = {
   brightWhite:   '#ffffff',
 };
 
-// ── Window height — grows upward from bottom as content fills ─────────────
+// ── Window height ──────────────────────────────────────────────────────────
+// Read xterm's actual rendered cell height so the measurement never goes stale.
+function getCellHeight(term) {
+  try {
+    return term._core._renderService.dimensions.actualCellHeight;
+  } catch (_) {
+    return Math.ceil(term.options.fontSize * (term.options.lineHeight || 1));
+  }
+}
+
 function resizeWindowToContent(tabId) {
   if (tabId !== activeTabId) return;
   const tab = tabs.get(tabId);
   if (!tab) return;
-  const contentRows = tab.term.buffer.active.cursorY + 1;
-  const contentPx   = Math.round(contentRows * tab.pixelsPerRow);
+  const rows      = tab.term.buffer.active.cursorY + 1;
+  const contentPx = Math.round(rows * getCellHeight(tab.term));
   ipcRenderer.send('window:resizeToContent', contentPx);
 }
 
@@ -73,6 +82,12 @@ async function createTab(shellId) {
   containerEl.appendChild(pane);
   term.open(pane);
 
+  // ── ONE-TIME fit while window is still at full 480px height ──
+  // After this we never call fitAddon.fit() again — doing so after the window
+  // shrinks would recalculate rows to a tiny number and break height tracking.
+  fitAddon.fit();
+  const { cols, rows } = term;
+
   // Tab element
   const tabEl = document.createElement('div');
   tabEl.className = 'tab';
@@ -87,35 +102,13 @@ async function createTab(shellId) {
   tabEl.addEventListener('click', () => activateTab(tabId));
   tabsEl.appendChild(tabEl);
 
-  // Fit to the current window size to get cols/rows and pixels-per-row
-  fitAddon.fit();
-  const { cols, rows } = term;
-  const pixelsPerRow = containerEl.clientHeight / rows;
-
   const tabId = await ipcRenderer.invoke('pty:create', { shellId: shell.id, cols, rows });
 
-  tabs.set(tabId, { term, fitAddon, pane, tabEl, shellLabel: shell.label, pixelsPerRow });
+  tabs.set(tabId, { term, pane, tabEl, shellLabel: shell.label });
 
-  // Wire input
   term.onData(data => ipcRenderer.send('pty:input', { tabId, data }));
 
-  // Only refit when the pane WIDTH changes — height is controlled by us.
-  // Refitting on height changes would cause a feedback loop.
-  let prevWidth = pane.clientWidth;
-  const ro = new ResizeObserver(() => {
-    if (activeTabId !== tabId) return;
-    const w = pane.clientWidth;
-    if (w !== prevWidth) {
-      prevWidth = w;
-      fitAddon.fit();
-      ipcRenderer.send('pty:resize', { tabId, cols: term.cols, rows: term.rows });
-    }
-  });
-  ro.observe(pane);
-
   activateTab(tabId);
-  // Set initial window height to just the first row
-  resizeWindowToContent(tabId);
   return tabId;
 }
 
@@ -129,13 +122,12 @@ function activateTab(tabId) {
   }
 
   activeTabId = tabId;
-  const { term, fitAddon, pane, tabEl } = tabs.get(tabId);
+  const { term, pane, tabEl } = tabs.get(tabId);
   pane.classList.add('active');
   tabEl.classList.add('active');
 
+  // Focus only — no fitAddon.fit() here, that would corrupt row count
   requestAnimationFrame(() => {
-    fitAddon.fit();
-    ipcRenderer.send('pty:resize', { tabId, cols: term.cols, rows: term.rows });
     term.focus();
     resizeWindowToContent(tabId);
   });
@@ -168,7 +160,8 @@ function closeTab(tabId) {
 ipcRenderer.on('pty:output', (event, { tabId, data }) => {
   const tab = tabs.get(tabId);
   if (!tab) return;
-  // Use write callback so we read cursorY AFTER xterm has parsed the data
+  // Callback fires after xterm has fully parsed + rendered the data,
+  // so cursorY is accurate when we read it.
   tab.term.write(data, () => resizeWindowToContent(tabId));
 });
 
