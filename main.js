@@ -1,3 +1,5 @@
+require('dotenv').config();
+
 const { app, BrowserWindow, ipcMain, globalShortcut, screen, dialog } = require('electron');
 const fs = require('fs');
 const os = require('os');
