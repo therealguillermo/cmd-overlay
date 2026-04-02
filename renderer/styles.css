@@ -9,6 +9,16 @@ html, body {
   font-family: 'Cascadia Code', 'Fira Code', Consolas, 'Courier New', monospace;
 }
 
+:root {
+  --overlay-text: rgba(245, 247, 250, 0.96);
+  --overlay-text-muted: rgba(245, 247, 250, 0.6);
+  --overlay-text-dim: rgba(245, 247, 250, 0.45);
+  --overlay-shadow-strong:
+    drop-shadow(0 0 1px rgba(0, 0, 0, 1))
+    drop-shadow(0 1px 1px rgba(0, 0, 0, 0.98))
+    drop-shadow(0 0 6px rgba(0, 0, 0, 0.9));
+}
+
 #app {
   display: flex;
   flex-direction: column;
@@ -50,7 +60,7 @@ html, body {
   border-radius: 4px;
   cursor: pointer;
   font-size: 11px;
-  color: rgba(255, 255, 255, 0.35);
+  color: var(--overlay-text-dim);
   background: transparent;
   border: none;
   white-space: nowrap;
@@ -58,9 +68,13 @@ html, body {
   flex-shrink: 0;
   max-width: 160px;
   -webkit-app-region: no-drag;
+  text-shadow:
+    0 0 1px rgba(0, 0, 0, 1),
+    0 1px 2px rgba(0, 0, 0, 0.95),
+    0 0 6px rgba(0, 0, 0, 0.8);
 }
-.tab:hover { color: rgba(255, 255, 255, 0.7); }
-.tab.active { color: #fff; }
+.tab:hover { color: var(--overlay-text-muted); }
+.tab.active { color: var(--overlay-text); }
 
 .tab-label {
   flex: 1;
@@ -72,7 +86,7 @@ html, body {
   height: 12px;
   border: none;
   background: transparent;
-  color: rgba(255, 255, 255, 0.25);
+  color: var(--overlay-text-dim);
   font-size: 9px;
   cursor: pointer;
   display: flex;
@@ -81,6 +95,9 @@ html, body {
   padding: 0;
   flex-shrink: 0;
   transition: color 0.15s;
+  text-shadow:
+    0 0 1px rgba(0, 0, 0, 1),
+    0 1px 2px rgba(0, 0, 0, 0.95);
 }
 .tab-close:hover { color: rgba(255, 100, 100, 0.9); }
 
@@ -91,7 +108,7 @@ html, body {
   height: 20px;
   border: none;
   background: transparent;
-  color: rgba(255, 255, 255, 0.35);
+  color: var(--overlay-text-dim);
   font-size: 16px;
   line-height: 1;
   cursor: pointer;
@@ -100,8 +117,12 @@ html, body {
   justify-content: center;
   transition: color 0.15s;
   -webkit-app-region: no-drag;
+  text-shadow:
+    0 0 1px rgba(0, 0, 0, 1),
+    0 1px 2px rgba(0, 0, 0, 0.95),
+    0 0 6px rgba(0, 0, 0, 0.8);
 }
-#btn-new-tab:hover { color: #fff; }
+#btn-new-tab:hover { color: var(--overlay-text); }
 
 #shell-select-wrap {
   flex-shrink: 0;
@@ -109,7 +130,7 @@ html, body {
 }
 #shell-select {
   background: transparent;
-  color: rgba(255, 255, 255, 0.35);
+  color: var(--overlay-text-dim);
   border: none;
   font-size: 11px;
   padding: 0 2px;
@@ -117,9 +138,13 @@ html, body {
   cursor: pointer;
   outline: none;
   -webkit-appearance: none;
+  text-shadow:
+    0 0 1px rgba(0, 0, 0, 1),
+    0 1px 2px rgba(0, 0, 0, 0.95),
+    0 0 6px rgba(0, 0, 0, 0.8);
 }
 #shell-select option { background: #1a1a1a; color: #fff; }
-#shell-select:hover { color: rgba(255, 255, 255, 0.7); }
+#shell-select:hover { color: var(--overlay-text-muted); }
 
 #window-controls {
   display: flex;
@@ -133,7 +158,7 @@ html, body {
   height: 20px;
   border: none;
   background: transparent;
-  color: rgba(255, 255, 255, 0.3);
+  color: var(--overlay-text-dim);
   font-size: 11px;
   cursor: pointer;
   display: flex;
@@ -141,8 +166,12 @@ html, body {
   justify-content: center;
   transition: color 0.15s;
   font-family: inherit;
+  text-shadow:
+    0 0 1px rgba(0, 0, 0, 1),
+    0 1px 2px rgba(0, 0, 0, 0.95),
+    0 0 6px rgba(0, 0, 0, 0.8);
 }
-#window-controls button:hover { color: #fff; }
+#window-controls button:hover { color: var(--overlay-text); }
 #btn-close:hover { color: rgba(255, 100, 100, 0.9) !important; }
 
 /* ── Terminal area ───────────────────────────────────────────────────────── */
@@ -166,4 +195,7 @@ html, body {
 .xterm { height: 100%; }
 .xterm-viewport { background: transparent !important; scrollbar-width: none; }
 .xterm-viewport::-webkit-scrollbar { display: none; }
-.xterm-screen canvas { background: transparent !important; }
+.xterm-screen canvas {
+  background: transparent !important;
+  filter: var(--overlay-shadow-strong);
+}
