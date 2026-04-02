@@ -1,9 +1,12 @@
 const { ipcRenderer } = require('electron');
 
+const CLEAR_COMMANDS = new Set(['clear', 'cls']);
+
 // ── State ──────────────────────────────────────────────────────────────────
-const tabs = new Map(); // tabId → { term, pane, tabEl, shellLabel }
+const tabs = new Map(); // tabId → { term, fitAddon, pane, tabEl, shellLabel, lastSize }
 let activeTabId = null;
 let availableShells = [];
+let reflowFrame = null;
 
 // ── DOM refs ───────────────────────────────────────────────────────────────
 const tabsEl      = document.getElementById('tabs');
@@ -48,13 +51,54 @@ function getCellHeight(term) {
   }
 }
 
+function getAbsoluteCursorRow(term) {
+  const buffer = term.buffer.active;
+  return buffer.baseY + buffer.cursorY;
+}
+
+function getBufferRowCount(tab) {
+  return Math.max(1, getAbsoluteCursorRow(tab.term) - (tab.contentStartRow || 0) + 1);
+}
+
+function outputClearsTerminal(data) {
+  return data.includes('\x1bc') || data.includes('\x1b[2J') || data.includes('\x1b[3J');
+}
+
 function resizeWindowToContent(tabId) {
   if (tabId !== activeTabId) return;
   const tab = tabs.get(tabId);
   if (!tab) return;
-  const rows      = tab.term.buffer.active.cursorY + 1;
+  const rows      = getBufferRowCount(tab);
   const contentPx = Math.round(rows * getCellHeight(tab.term));
   ipcRenderer.send('window:resizeToContent', contentPx);
+}
+
+function reflowActiveTerminal() {
+  reflowFrame = null;
+  if (activeTabId === null) return;
+
+  const tab = tabs.get(activeTabId);
+  if (!tab) return;
+
+  const { term, fitAddon, pane, lastSize } = tab;
+  if (!pane.classList.contains('active')) return;
+  if (pane.clientWidth === 0 || pane.clientHeight === 0) return;
+
+  fitAddon.fit();
+
+  if (term.cols < 2 || term.rows < 1) return;
+
+  if (!lastSize || lastSize.cols !== term.cols || lastSize.rows !== term.rows) {
+    tab.lastSize = { cols: term.cols, rows: term.rows };
+    ipcRenderer.send('pty:resize', { tabId: activeTabId, cols: term.cols, rows: term.rows });
+  }
+
+  resizeWindowToContent(activeTabId);
+}
+
+function scheduleReflow() {
+  if (reflowFrame !== null) cancelAnimationFrame(reflowFrame);
+  reflowFrame = requestAnimationFrame(reflowActiveTerminal);
 }
 
 // ── Tab management ─────────────────────────────────────────────────────────
@@ -82,9 +126,6 @@ async function createTab(shellId) {
   containerEl.appendChild(pane);
   term.open(pane);
 
-  // ── ONE-TIME fit while window is still at full 480px height ──
-  // After this we never call fitAddon.fit() again — doing so after the window
-  // shrinks would recalculate rows to a tiny number and break height tracking.
   fitAddon.fit();
   const { cols, rows } = term;
 
@@ -104,7 +145,20 @@ async function createTab(shellId) {
 
   const tabId = await ipcRenderer.invoke('pty:create', { shellId: shell.id, cols, rows });
 
-  tabs.set(tabId, { term, pane, tabEl, shellLabel: shell.label, agentMode: false, agentPending: 0, agentBuffer: '' });
+  tabs.set(tabId, {
+    term,
+    fitAddon,
+    pane,
+    tabEl,
+    shellLabel: shell.label,
+    lastSize: { cols, rows },
+    contentStartRow: 0,
+    shellInputBuffer: '',
+    pendingClearCommand: false,
+    agentMode: false,
+    agentPending: 0,
+    agentBuffer: '',
+  });
 
   term.onData(data => handleTermInput(tabId, data));
 
@@ -126,10 +180,9 @@ function activateTab(tabId) {
   pane.classList.add('active');
   tabEl.classList.add('active');
 
-  // Focus only — no fitAddon.fit() here, that would corrupt row count
   requestAnimationFrame(() => {
     term.focus();
-    resizeWindowToContent(tabId);
+    scheduleReflow();
   });
 }
 
@@ -201,7 +254,21 @@ function handleTermInput(tabId, data) {
   // Not a ? — flush any held ? to PTY and proceed normally
   if (tab.agentPending > 0) {
     ipcRenderer.send('pty:input', { tabId, data: '?' });
+    tab.shellInputBuffer += '?';
     tab.agentPending = 0;
+  }
+
+  if (data === '\r') {
+    const command = tab.shellInputBuffer.trim().toLowerCase();
+    tab.pendingClearCommand = CLEAR_COMMANDS.has(command);
+    tab.shellInputBuffer = '';
+  } else if (data === '\x7f' || data === '\b') {
+    tab.shellInputBuffer = tab.shellInputBuffer.slice(0, -1);
+  } else if (data === '\x03') {
+    tab.shellInputBuffer = '';
+    tab.pendingClearCommand = false;
+  } else if (data >= ' ') {
+    tab.shellInputBuffer += data;
   }
 
   ipcRenderer.send('pty:input', { tabId, data });
@@ -211,9 +278,16 @@ function handleTermInput(tabId, data) {
 ipcRenderer.on('pty:output', (event, { tabId, data }) => {
   const tab = tabs.get(tabId);
   if (!tab) return;
+  const clearsTerminal = tab.pendingClearCommand || outputClearsTerminal(data);
   // Callback fires after xterm has fully parsed + rendered the data,
   // so cursorY is accurate when we read it.
-  tab.term.write(data, () => resizeWindowToContent(tabId));
+  tab.term.write(data, () => {
+    if (clearsTerminal) {
+      tab.contentStartRow = getAbsoluteCursorRow(tab.term);
+      tab.pendingClearCommand = false;
+    }
+    resizeWindowToContent(tabId);
+  });
 });
 
 ipcRenderer.on('pty:exit', (event, { tabId }) => {
@@ -283,3 +357,10 @@ async function init() {
 }
 
 init().catch(console.error);
+
+const resizeObserver = new ResizeObserver(() => {
+  scheduleReflow();
+});
+
+resizeObserver.observe(containerEl);
+window.addEventListener('resize', scheduleReflow);
